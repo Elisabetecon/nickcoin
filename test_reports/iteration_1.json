@@ -1,0 +1,46 @@
+{
+  "summary": "First end-to-end testing of Nickcoin. Backend: 21/21 pytest tests passed (health, auth register/login/recover/me/language, mining start/status/claim-before-complete/daily-bonus/history, referrals with +5 NKG bonus, chat post/get, market 13 coins via CoinGecko). Frontend: welcome, login, tabs (mining, market with 10+ coins live from CoinGecko, chat public room, profile), language modal (10 langs live switch), about (founders Elisabete/Nick), legal (VASP/MiCA), logout all working via login path. One critical web-specific blocker: seed-phrase Alert.alert does not render on React Native Web so new web signups cannot reach (tabs) after acknowledging the seed.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "GET /api/market/prices", "issue": "CoinGecko sometimes returns only 10 of 13 requested coins (eos/iota/nem missing from live feed); fallback path already covers full list — acceptable. Also CoinGecko 429 observed intermittently — backend cache+fallback handles it."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "app/(auth)/seed-phrase.tsx", "issue": "onContinue uses Alert.alert() which is a no-op on React Native Web. Tapping 'Guardei em segurança' never triggers router.replace('/(tabs)'), blocking all web users from completing the register → tabs flow. Replace with a Modal or call router.replace directly (optionally with a custom confirmation dialog).", "testID": "seed-acknowledge", "priority": "CRITICAL"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "global", "issues": ["Console warns: 'shadow*' style props are deprecated, use 'boxShadow' (multiple screens). Non-blocking but should be migrated.", "Animated useNativeDriver warning on web (expected RN Web fallback, non-blocking)."]}
+    ],
+    "react_native_issues": [
+      {"component": "seed-phrase.tsx", "issue": "Alert.alert usage incompatible with web build; produces silent failure. Replace with react-native-web compatible Modal."}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_nickcoin_api.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "CRITICAL: Replace Alert.alert in /app/frontend/app/(auth)/seed-phrase.tsx with a Modal-based confirmation (or call router.replace('/(tabs)') directly) so new users on the web preview can reach the tabs after registration.",
+    "Optional: migrate `shadow*` styles to `boxShadow` to silence deprecation warnings.",
+    "Optional: add testIDs `seed-word-{1..12}` to each word cell in seed-phrase.tsx for deterministic testing of the 12-word grid."
+  ],
+  "critical_code_review_comments": [
+    "server.py (540 lines): approaching the 700-line threshold — consider splitting into auth.py/mining.py/chat.py/market.py routers soon.",
+    "CORSMiddleware uses allow_origins=['*'] with allow_credentials=False — acceptable for Bearer-token mobile app.",
+    "_id exclusion is handled consistently via {'_id': 0} projections and post-serialization.",
+    "Passwords hashed with bcrypt ($2b$), seed hashed with SHA-256 of normalized mnemonic — correct separation of concerns."
+  ],
+  "updated_files": [
+    "/app/backend/tests/__init__.py (new, empty)",
+    "/app/backend/tests/test_nickcoin_api.py (new, 21 pytest cases)"
+  ],
+  "success_rate": {"backend": "100% (21/21)", "frontend": "~92% (11/12 flows — register→tabs blocked by Alert.alert)"},
+  "seed_data_creation": "Created disposable TEST_* users via /api/auth/register during pytest run. pioneer@nickcoin.app already present (Pioneer123!). No cleanup script run — test users are harmless.",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Backend regression: run `pytest /app/backend/tests/test_nickcoin_api.py -v`. Frontend: use login flow with pioneer@nickcoin.app / Pioneer123! to reach tabs; tab navigation requires page.get_by_role('tab', name='MARKET').click() (not text click). testIDs confirmed: welcome-get-started, welcome-have-account, login-screen, login-email, login-password, login-submit, register-screen, register-username, register-email, register-password, register-submit, seed-phrase-screen, seed-acknowledge, mining-screen, mining-action-button, claim-daily-bonus, balance-nkg, balance-beta, market-row-{SYMBOL}, chat-input, chat-send, profile-screen, menu-language, menu-about, menu-legal, logout-button, lang-{pt|br|en|es|fr|it|de|ru|tr|zh}. Alert.alert is broken on web — use page.on('dialog', lambda d: d.accept()) will NOT help, because RN Web Alert.alert is a no-op.",
+  "rca_of_issue": "CRITICAL BUG RCA — seed-phrase continue button: React Native's `Alert.alert()` has no web implementation; on react-native-web it silently does nothing. Therefore the onPress handler at seed-phrase.tsx:12 never calls router.replace('/(tabs)'), trapping newly-registered users on the seed screen in the web preview. Reproduction: open /, tap 'Começar agora' → fill form → submit → seed-phrase shown → tap 'Guardei em segurança' → nothing happens. Mitigation: (a) replace Alert.alert with a custom Modal component (existing in Profile/About/Legal), OR (b) navigate directly: `router.replace('/(tabs)')` without confirmation, OR (c) use `window.confirm(...)` on Platform.OS==='web' and Alert.alert on native."
+}
