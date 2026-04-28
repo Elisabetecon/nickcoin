@@ -24,7 +24,7 @@ from mnemonic import Mnemonic
 
 # ---------- Config ----------
 JWT_ALGORITHM = "HS256"
-JWT_SECRET = os.environ.get("JWT_SECRET", "nickcoin-dev-secret-change-me-in-production-please-now-9f3a")
+JWT_SECRET = os.environ["JWT_SECRET"]
 ACCESS_TOKEN_EXPIRE_DAYS = 30  # mobile UX
 
 MINING_DURATION_HOURS = 24
@@ -378,7 +378,7 @@ async def mining_history(current=Depends(get_current_user)):
 # ---------- Routes: Referrals ----------
 @api_router.get("/referrals")
 async def referrals(current=Depends(get_current_user)):
-    cursor = db.users.find({"referred_by": current["id"]}, {"_id": 0, "username": 1, "email": 1, "created_at": 1})
+    cursor = db.users.find({"referred_by": current["id"]}, {"_id": 0, "username": 1, "email": 1, "created_at": 1}).limit(100)
     items = []
     async for u in cursor:
         if isinstance(u.get("created_at"), datetime):
