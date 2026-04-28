@@ -1,0 +1,121 @@
+{
+  "theme": {
+    "archetype": "5 (Jewel & Luxury) modified for Crypto-Premium",
+    "mode": "dark",
+    "description": "Hyper-realistic, hyper-formal, futuristic, premium dark mode app with deep black backgrounds and electric blue neon accents."
+  },
+  "colors": {
+    "background": {
+      "default": "#000000",
+      "surface": "#0A0A0A",
+      "surface_elevated": "#121212"
+    },
+    "brand": {
+      "primary": "#00B4FF",
+      "primary_glow": "#1FA2FF",
+      "secondary": "#A0A0A0"
+    },
+    "text": {
+      "primary": "#FFFFFF",
+      "secondary": "#A0A0A0",
+      "accent": "#00B4FF",
+      "disabled": "#333333"
+    },
+    "border": {
+      "default": "rgba(255, 255, 255, 0.05)",
+      "active": "rgba(0, 180, 255, 0.5)"
+    },
+    "forbidden_colors": [
+      "purple",
+      "violet",
+      "#9D4CDD",
+      "teal green",
+      "teal blue",
+      "#1B93A4"
+    ]
+  },
+  "typography": {
+    "families": {
+      "primary": "Space Grotesk",
+      "numbers": "JetBrains Mono"
+    },
+    "forbidden_fonts": [
+      "Inter",
+      "Roboto",
+      "Open Sans",
+      "Lato"
+    ],
+    "sizes": {
+      "h1": "text-4xl tracking-tight",
+      "h2": "text-3xl tracking-tight",
+      "h3": "text-2xl",
+      "body": "text-base",
+      "caption": "text-sm tracking-widest uppercase",
+      "balance": "text-5xl font-bold tracking-tighter"
+    }
+  },
+  "layout_and_spacing": {
+    "grid_system": "8pt grid",
+    "spacing_scale": {
+      "sm": "8px",
+      "md": "16px",
+      "lg": "24px",
+      "xl": "32px",
+      "2xl": "48px"
+    },
+    "components": {
+      "cards": "Subtle glassmorphism (rgba(255,255,255,0.03)), backdrop-blur-xl, 1px border-white/10, no heavy shadows. Flat or max 8px border-radius.",
+      "buttons": "Flat, sharp edges or subtle roundness. Primary CTAs use #00B4FF. Ensure high contrast.",
+      "navigation": "Top tab navigation (Mineração / Carteira / Mercado / Chat / Perfil).",
+      "alignment": "Asymmetrical layouts by default (left-aligned content), EXCEPT for the main pulsating mining button which MUST be centralized."
+    }
+  },
+  "motion_and_interaction": {
+    "mining_button": "Use react-native-reanimated for hyper-realistic pulse effect and glow. Centralized focus.",
+    "splash_screen": "Pulsating neon mask with slow scale-in cinematic animation.",
+    "microinteractions": "Subtle feedback on all major actions."
+  },
+  "media": {
+    "image_urls": [
+      {
+        "category": "logo_and_splash",
+        "url": "https://customer-assets.emergentagent.com/job_6bb6ffbd-b3ca-412d-aec1-2eba0b3a1ad6/artifacts/cpa6kc2r_masque-led-lumineux-bleu-adulte_324907_2.jpg",
+        "description": "CRITICAL: The ONLY logo. Do NOT overlay text. Process for intense blue neon glow and deep black background."
+      },
+      {
+        "category": "background",
+        "url": "https://static.prod-images.emergentagent.com/jobs/6bb6ffbd-b3ca-412d-aec1-2eba0b3a1ad6/images/c64081302df2585ff005af34be96f8bc1885d2cdcc8d73076b48a238130371ef.png",
+        "description": "Hyper-realistic pitch black studio background with a subtle electric blue rim light."
+      },
+      {
+        "category": "founder_elisabete",
+        "url": "https://static.prod-images.emergentagent.com/jobs/6bb6ffbd-b3ca-412d-aec1-2eba0b3a1ad6/images/b6bd002b8158a05d70c3a40b7f36054393387a04071f521197411445734f8cdd.png",
+        "description": "Portrait of Elisabete Gonçalves (Founder)."
+      },
+      {
+        "category": "founder_nick",
+        "url": "https://static.prod-images.emergentagent.com/jobs/6bb6ffbd-b3ca-412d-aec1-2eba0b3a1ad6/images/5404d70349c6f72ae7f4b729687a3220f768bd6faead4b20efa1f7993115903b.png",
+        "description": "Portrait of Nick Oliveira (Founder)."
+      }
+    ],
+    "icons": {
+      "library": "lucide-react-native",
+      "style": "Stroke width 1.5, sharp and minimalist, or @expo/vector-icons."
+    }
+  },
+  "key_features_instructions": {
+    "tech_stack_notice": "CRITICAL: Project uses .js files, NOT .tsx files. Write all React Native components in .js.",
+    "splash_screen": "Display the neon mask image. Add pulsating opacity/scale animation.",
+    "onboarding": "12-word BIP39 style generation and confirmation. Use dark surfaces and JetBrains monospace font for the 12 words.",
+    "auth": "Login/Register via email and password.",
+    "dashboard": "Centralized pulsating mining button. 24h countdown timer. Large balance display using JetBrains Mono (Nick King main, Beta sub-unit). Daily bonus claim section.",
+    "wallet": "Clickable cards linking to external wallets (Trust Wallet, MetaMask, Binance, Coinbase, Kraken).",
+    "market": "Real-time (or mocked) prices for BTC, ETH, XRP, LTC, UNI, DASH, DOT, XMR, EOS, IOTA, ADA, ZEC, NEM. High contrast numbers.",
+    "referral": "Invite code generator, active invites list, bonus per invite info.",
+    "chat": "Global social chat room in real-time. Sleek dark bubbles.",
+    "settings_and_about": "Language selector (Default: Português de Portugal). Include 'Sobre' page with licenses, legal terms, founders (Elisabete Gonçalves, Nick Oliveira), HQ: Portugal."
+  },
+  "testing": {
+    "attributes": "Add testID prop to all interactive elements using kebab-case role-based names (e.g., testID='mining-action-button')."
+  }
+}
