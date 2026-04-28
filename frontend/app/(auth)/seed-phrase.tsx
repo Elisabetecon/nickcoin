@@ -1,4 +1,5 @@
-import { View, Text, StyleSheet, ScrollView, Pressable, Alert } from "react-native";
+import { useState } from "react";
+import { View, Text, StyleSheet, ScrollView, Pressable, Modal } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { COLORS } from "../../src/theme";
 import { useT } from "../../src/i18n";
@@ -8,17 +9,11 @@ export default function SeedPhrase() {
   const t = useT();
   const { phrase } = useLocalSearchParams<{ phrase: string }>();
   const words = (phrase || "").split(/\s+/).filter(Boolean);
+  const [confirmOpen, setConfirmOpen] = useState(false);
 
-  const onContinue = () => {
-    Alert.alert(
-      t("seed_title"),
-      "Confirmas que guardaste a frase em local seguro?",
-      [
-        { text: t("no"), style: "cancel" },
-        { text: t("yes"), onPress: () => router.replace("/(tabs)") },
-      ],
-      { cancelable: true }
-    );
+  const proceed = () => {
+    setConfirmOpen(false);
+    router.replace("/(tabs)");
   };
 
   return (
@@ -30,7 +25,7 @@ export default function SeedPhrase() {
 
       <View style={styles.grid}>
         {words.map((w, i) => (
-          <View key={i} style={styles.wordCell}>
+          <View key={i} style={styles.wordCell} testID={`seed-word-${i + 1}`}>
             <Text style={styles.idx}>{String(i + 1).padStart(2, "0")}</Text>
             <Text style={styles.word}>{w}</Text>
           </View>
@@ -44,9 +39,26 @@ export default function SeedPhrase() {
         </Text>
       </View>
 
-      <Pressable style={styles.primary} onPress={onContinue} testID="seed-acknowledge">
+      <Pressable style={styles.primary} onPress={() => setConfirmOpen(true)} testID="seed-acknowledge">
         <Text style={styles.primaryText}>{t("seed_ack")}</Text>
       </Pressable>
+
+      <Modal visible={confirmOpen} transparent animationType="fade" onRequestClose={() => setConfirmOpen(false)}>
+        <View style={styles.modalBg}>
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>{t("seed_title")}</Text>
+            <Text style={styles.modalBody}>Confirmas que guardaste a frase em local seguro?</Text>
+            <View style={styles.modalActions}>
+              <Pressable style={[styles.modalBtn, styles.modalBtnCancel]} onPress={() => setConfirmOpen(false)} testID="seed-confirm-cancel">
+                <Text style={styles.modalBtnCancelText}>{t("no")}</Text>
+              </Pressable>
+              <Pressable style={[styles.modalBtn, styles.modalBtnOk]} onPress={proceed} testID="seed-confirm-yes">
+                <Text style={styles.modalBtnOkText}>{t("yes")}</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </ScrollView>
   );
 }
@@ -88,9 +100,23 @@ const styles = StyleSheet.create({
     paddingVertical: 16,
     borderRadius: 12,
     alignItems: "center",
-    shadowColor: COLORS.primary,
-    shadowOpacity: 0.5,
-    shadowRadius: 16,
   },
   primaryText: { color: "#001018", fontWeight: "800", fontSize: 15, letterSpacing: 1 },
+  modalBg: { flex: 1, backgroundColor: "rgba(0,0,0,0.75)", justifyContent: "center", alignItems: "center", padding: 24 },
+  modalCard: {
+    width: "100%", maxWidth: 380,
+    backgroundColor: "#0A0A0A",
+    borderRadius: 16,
+    padding: 22,
+    borderWidth: 1,
+    borderColor: COLORS.borderActive,
+  },
+  modalTitle: { color: COLORS.textPrimary, fontSize: 17, fontWeight: "700" },
+  modalBody: { color: COLORS.textSecondary, fontSize: 14, marginTop: 10, lineHeight: 20 },
+  modalActions: { flexDirection: "row", gap: 10, marginTop: 20 },
+  modalBtn: { flex: 1, paddingVertical: 13, borderRadius: 10, alignItems: "center" },
+  modalBtnCancel: { borderWidth: 1, borderColor: COLORS.border },
+  modalBtnCancelText: { color: COLORS.textPrimary, fontWeight: "700" },
+  modalBtnOk: { backgroundColor: COLORS.primary },
+  modalBtnOkText: { color: "#001018", fontWeight: "800", letterSpacing: 1 },
 });

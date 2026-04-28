@@ -1,6 +1,6 @@
 import { useState } from "react";
 import {
-  View, Text, StyleSheet, ScrollView, Pressable, Modal, Image, Alert,
+  View, Text, StyleSheet, ScrollView, Pressable, Modal, Image,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
@@ -16,19 +16,12 @@ export default function Profile() {
   const [langOpen, setLangOpen] = useState(false);
   const [aboutOpen, setAboutOpen] = useState(false);
   const [legalOpen, setLegalOpen] = useState(false);
+  const [logoutOpen, setLogoutOpen] = useState(false);
 
-  const onLogout = () => {
-    Alert.alert(t("confirm_logout"), "", [
-      { text: t("no"), style: "cancel" },
-      {
-        text: t("yes"),
-        style: "destructive",
-        onPress: async () => {
-          await logout();
-          router.replace("/(auth)/welcome");
-        },
-      },
-    ]);
+  const doLogout = async () => {
+    setLogoutOpen(false);
+    await logout();
+    router.replace("/(auth)/welcome");
   };
 
   const memberSince = user?.created_at ? new Date(user.created_at).toLocaleDateString() : "—";
@@ -66,7 +59,7 @@ export default function Profile() {
           <MenuItem icon="document-text-outline" label={t("legal")} onPress={() => setLegalOpen(true)} testID="menu-legal" />
         </View>
 
-        <Pressable style={styles.logout} onPress={onLogout} testID="logout-button">
+        <Pressable style={styles.logout} onPress={() => setLogoutOpen(true)} testID="logout-button">
           <Ionicons name="log-out-outline" size={20} color={COLORS.danger} />
           <Text style={styles.logoutText}>{t("logout")}</Text>
         </Pressable>
@@ -125,6 +118,23 @@ export default function Profile() {
             </Pressable>
           </Pressable>
         </Pressable>
+      </Modal>
+
+      {/* Logout confirm modal */}
+      <Modal visible={logoutOpen} transparent animationType="fade" onRequestClose={() => setLogoutOpen(false)}>
+        <View style={styles.confirmBg}>
+          <View style={styles.confirmCard}>
+            <Text style={styles.confirmTitle}>{t("confirm_logout")}</Text>
+            <View style={styles.confirmActions}>
+              <Pressable style={[styles.confirmBtn, styles.confirmCancel]} onPress={() => setLogoutOpen(false)} testID="logout-cancel">
+                <Text style={styles.confirmCancelText}>{t("no")}</Text>
+              </Pressable>
+              <Pressable style={[styles.confirmBtn, styles.confirmOk]} onPress={doLogout} testID="logout-confirm">
+                <Text style={styles.confirmOkText}>{t("yes")}</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
       </Modal>
 
       {/* Legal modal */}
@@ -252,4 +262,13 @@ const styles = StyleSheet.create({
   },
   aboutLabel: { color: COLORS.textMuted, fontSize: 9, letterSpacing: 1.5 },
   aboutValue: { color: COLORS.textPrimary, fontSize: 12, fontWeight: "700", marginTop: 4 },
+  confirmBg: { flex: 1, backgroundColor: "rgba(0,0,0,0.75)", justifyContent: "center", alignItems: "center", padding: 24 },
+  confirmCard: { width: "100%", maxWidth: 360, backgroundColor: "#0A0A0A", borderRadius: 16, padding: 22, borderWidth: 1, borderColor: COLORS.border },
+  confirmTitle: { color: COLORS.textPrimary, fontSize: 17, fontWeight: "700", textAlign: "center" },
+  confirmActions: { flexDirection: "row", gap: 10, marginTop: 22 },
+  confirmBtn: { flex: 1, paddingVertical: 13, borderRadius: 10, alignItems: "center" },
+  confirmCancel: { borderWidth: 1, borderColor: COLORS.border },
+  confirmCancelText: { color: COLORS.textPrimary, fontWeight: "700" },
+  confirmOk: { backgroundColor: COLORS.danger },
+  confirmOkText: { color: "#FFFFFF", fontWeight: "800", letterSpacing: 1 },
 });
