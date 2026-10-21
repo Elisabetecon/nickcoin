@@ -32,6 +32,11 @@ MINING_BASE_RATE_PER_HOUR = 0.25  # Nick King per hour
 DAILY_BONUS_AMOUNT = 1.0  # NKG
 REFERRAL_BONUS = 5.0  # NKG per referral that registers
 
+# Transfer fees (Nickcoin internal network)
+TRANSFER_FEE_PCT = 0.001  # 0.1%
+MIN_TRANSFER_NKG = 0.01
+MIN_TRANSFER_BETA = 1.0
+
 # ---------- DB ----------
 mongo_url = os.environ["MONGO_URL"]
 client = AsyncIOMotorClient(mongo_url)
@@ -150,6 +155,13 @@ class ChatMessageIn(BaseModel):
 
 class LanguageIn(BaseModel):
     language: str
+
+
+class TransferIn(BaseModel):
+    recipient: str = Field(min_length=2, max_length=64)  # username or referral_code
+    amount: float = Field(gt=0)
+    currency: str = Field(pattern="^(NKG|BETA)$")
+    note: Optional[str] = Field(default=None, max_length=140)
 
 
 # ---------- Routes: Auth ----------
@@ -346,22 +358,50 @@ async def daily_bonus(current=Depends(get_current_user)):
     if last == today:
         raise HTTPException(status_code=400, detail="Bónus diário já reclamado")
 
+    # Streak logic: +1 if claimed yesterday, else reset to 1
+    yesterday = (now_utc().date() - timedelta(days=1)).isoformat()
+    prev_streak = int(current.get("daily_streak", 0))
+    streak = prev_streak + 1 if last == yesterday else 1
+    # Bonus scales with streak (cap 7-day multiplier)
+    multiplier = min(streak, 7)
+    beta_reward = DAILY_BONUS_AMOUNT * 100 * multiplier
+    nkg_bonus = 0.0
+    if streak in (7, 30, 90, 365):
+        nkg_bonus = {7: 1.0, 30: 5.0, 90: 20.0, 365: 100.0}[streak]
+
     await db.users.update_one(
         {"id": current["id"]},
         {
-            "$set": {"last_daily_bonus": today},
-            "$inc": {"balance_beta": DAILY_BONUS_AMOUNT * 100},  # 1 NKG = 100 Beta
+            "$set": {"last_daily_bonus": today, "daily_streak": streak},
+            "$inc": {"balance_beta": beta_reward, "balance_nkg": nkg_bonus},
         },
     )
     await db.transactions.insert_one({
         "id": str(uuid.uuid4()),
         "user_id": current["id"],
         "type": "daily_bonus",
-        "amount": DAILY_BONUS_AMOUNT * 100,
+        "amount": beta_reward,
         "currency": "BETA",
+        "streak": streak,
         "created_at": now_utc(),
     })
-    return {"claimed": DAILY_BONUS_AMOUNT * 100, "currency": "BETA"}
+    if nkg_bonus > 0:
+        await db.transactions.insert_one({
+            "id": str(uuid.uuid4()),
+            "user_id": current["id"],
+            "type": "streak_reward",
+            "amount": nkg_bonus,
+            "currency": "NKG",
+            "streak": streak,
+            "created_at": now_utc(),
+        })
+    return {
+        "claimed": beta_reward,
+        "currency": "BETA",
+        "streak": streak,
+        "multiplier": multiplier,
+        "nkg_bonus": nkg_bonus,
+    }
 
 
 @api_router.get("/mining/history")
@@ -390,6 +430,318 @@ async def referrals(current=Depends(get_current_user)):
         "bonus_per_invite": REFERRAL_BONUS,
         "items": items,
     }
+
+
+# ---------- Routes: Users / Transfer ----------
+@api_router.get("/users/lookup")
+async def users_lookup(q: str, current=Depends(get_current_user)):
+    q = (q or "").strip()
+    if not q:
+        raise HTTPException(status_code=400, detail="Identificador inválido")
+    user = await db.users.find_one(
+        {"$or": [{"username": q}, {"referral_code": q.upper()}]},
+        {"_id": 0, "id": 1, "username": 1, "referral_code": 1},
+    )
+    if not user:
+        raise HTTPException(status_code=404, detail="Destinatário não encontrado")
+    if user["id"] == current["id"]:
+        raise HTTPException(status_code=400, detail="Não podes transferir para ti próprio")
+    return user
+
+
+def _gen_tx_hash() -> str:
+    # Realistic looking 0x... 64-hex tx hash
+    return "0x" + secrets.token_hex(32)
+
+
+def _gen_block_height() -> int:
+    # Deterministic-ish block height starting from Nickcoin genesis
+    epoch = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    seconds = int((now_utc() - epoch).total_seconds())
+    return 1_482_000 + (seconds // 5)  # ~5s blocks
+
+
+@api_router.post("/transfer/send")
+async def transfer_send(payload: TransferIn, current=Depends(get_current_user)):
+    recipient_query = payload.recipient.strip()
+    recipient = await db.users.find_one(
+        {"$or": [{"username": recipient_query}, {"referral_code": recipient_query.upper()}]}
+    )
+    if not recipient:
+        raise HTTPException(status_code=404, detail="Destinatário não encontrado")
+    if recipient["id"] == current["id"]:
+        raise HTTPException(status_code=400, detail="Não podes transferir para ti próprio")
+
+    amount = round(float(payload.amount), 6)
+    currency = payload.currency
+    if currency == "NKG" and amount < MIN_TRANSFER_NKG:
+        raise HTTPException(status_code=400, detail=f"Mínimo {MIN_TRANSFER_NKG} NKG")
+    if currency == "BETA" and amount < MIN_TRANSFER_BETA:
+        raise HTTPException(status_code=400, detail=f"Mínimo {MIN_TRANSFER_BETA} BETA")
+
+    fee = round(amount * TRANSFER_FEE_PCT, 6)
+    total_debit = round(amount + fee, 6)
+
+    bal_field = "balance_nkg" if currency == "NKG" else "balance_beta"
+    sender_balance = float(current.get(bal_field, 0.0))
+    if sender_balance < total_debit:
+        raise HTTPException(status_code=400, detail="Saldo insuficiente para a transferência (incluindo taxa)")
+
+    # Atomic-ish double update: deduct from sender (with balance check), credit recipient
+    upd = await db.users.update_one(
+        {"id": current["id"], bal_field: {"$gte": total_debit}},
+        {"$inc": {bal_field: -total_debit}},
+    )
+    if upd.modified_count != 1:
+        raise HTTPException(status_code=400, detail="Saldo insuficiente")
+    await db.users.update_one(
+        {"id": recipient["id"]},
+        {"$inc": {bal_field: amount}},
+    )
+
+    tx_hash = _gen_tx_hash()
+    block = _gen_block_height()
+    now = now_utc()
+
+    common = {
+        "tx_hash": tx_hash,
+        "block": block,
+        "currency": currency,
+        "amount": amount,
+        "fee": fee,
+        "from_id": current["id"],
+        "from_username": current.get("username"),
+        "to_id": recipient["id"],
+        "to_username": recipient.get("username"),
+        "note": (payload.note or "").strip()[:140],
+        "status": "confirmed",
+        "network": "Nickcoin Mainnet (BETA)",
+        "created_at": now,
+    }
+
+    # Sender ledger entry
+    await db.transactions.insert_one({
+        "id": str(uuid.uuid4()),
+        "user_id": current["id"],
+        "type": "transfer_out",
+        "amount": -(amount + fee),
+        **common,
+    })
+    # Recipient ledger entry
+    await db.transactions.insert_one({
+        "id": str(uuid.uuid4()),
+        "user_id": recipient["id"],
+        "type": "transfer_in",
+        "amount": amount,
+        **common,
+    })
+
+    return {
+        "ok": True,
+        "tx_hash": tx_hash,
+        "block": block,
+        "status": "confirmed",
+        "network": common["network"],
+        "amount": amount,
+        "fee": fee,
+        "currency": currency,
+        "to": {"username": recipient.get("username"), "referral_code": recipient.get("referral_code")},
+        "timestamp": now.isoformat(),
+    }
+
+
+@api_router.get("/transfer/history")
+async def transfer_history(current=Depends(get_current_user)):
+    cursor = db.transactions.find(
+        {"user_id": current["id"], "type": {"$in": ["transfer_in", "transfer_out"]}},
+        {"_id": 0},
+    ).sort("created_at", -1).limit(50)
+    items = []
+    async for t in cursor:
+        if isinstance(t.get("created_at"), datetime):
+            t["created_at"] = t["created_at"].isoformat()
+        items.append(t)
+    return {"items": items}
+
+
+# ---------- Routes: Quests (Missions) ----------
+def _iso_week(d: datetime) -> str:
+    y, w, _ = d.isocalendar()
+    return f"{y}-W{w:02d}"
+
+
+async def _build_quests(user: dict):
+    """Compute current quest state for a user."""
+    uid = user["id"]
+    today = now_utc().date().isoformat()
+    week = _iso_week(now_utc())
+    year = now_utc().year
+
+    claimed = user.get("quests_claimed", {}) or {}
+
+    # Daily quests
+    active_session = await db.mining_sessions.find_one({"user_id": uid, "claimed": False})
+    started_mining_today = False
+    if active_session and active_session.get("started_at"):
+        st = active_session["started_at"]
+        if st.tzinfo is None:
+            st = st.replace(tzinfo=timezone.utc)
+        started_mining_today = st.date().isoformat() == today
+
+    chat_today = await db.chat_messages.count_documents({
+        "user_id": uid,
+        "created_at": {"$gte": datetime.fromisoformat(today + "T00:00:00+00:00")},
+    })
+
+    # Weekly quests
+    week_start = now_utc() - timedelta(days=now_utc().weekday())
+    week_start = week_start.replace(hour=0, minute=0, second=0, microsecond=0)
+    week_bonus_days = await db.transactions.count_documents({
+        "user_id": uid,
+        "type": "daily_bonus",
+        "created_at": {"$gte": week_start},
+    })
+    week_referrals = await db.users.count_documents({
+        "referred_by": uid,
+        "created_at": {"$gte": week_start},
+    })
+    week_transfers = await db.transactions.count_documents({
+        "user_id": uid,
+        "type": "transfer_out",
+        "created_at": {"$gte": week_start},
+    })
+
+    # Yearly quest — Nickcoin anniversary (Jan 1) — claimable once per year
+    year_key = f"anniversary_{year}"
+
+    quests = [
+        {
+            "id": f"daily_mine_{today}",
+            "type": "daily",
+            "title": "Iniciar mineração diária",
+            "description": "Iniciar uma sessão de mineração hoje",
+            "reward_nkg": 0.5,
+            "reward_beta": 0,
+            "progress": 1 if started_mining_today else 0,
+            "goal": 1,
+            "claimable": started_mining_today and f"daily_mine_{today}" not in claimed,
+            "claimed": f"daily_mine_{today}" in claimed,
+        },
+        {
+            "id": f"daily_chat_{today}",
+            "type": "daily",
+            "title": "Falar na comunidade",
+            "description": "Enviar 1 mensagem no chat global",
+            "reward_nkg": 0,
+            "reward_beta": 50,
+            "progress": min(chat_today, 1),
+            "goal": 1,
+            "claimable": chat_today >= 1 and f"daily_chat_{today}" not in claimed,
+            "claimed": f"daily_chat_{today}" in claimed,
+        },
+        {
+            "id": f"weekly_streak_{week}",
+            "type": "weekly",
+            "title": "Semana de dedicação",
+            "description": "Reclamar bónus diário em 5 dias esta semana",
+            "reward_nkg": 3.0,
+            "reward_beta": 0,
+            "progress": min(week_bonus_days, 5),
+            "goal": 5,
+            "claimable": week_bonus_days >= 5 and f"weekly_streak_{week}" not in claimed,
+            "claimed": f"weekly_streak_{week}" in claimed,
+        },
+        {
+            "id": f"weekly_invite_{week}",
+            "type": "weekly",
+            "title": "Recrutador Nickcoin",
+            "description": "Convidar 1 amigo esta semana",
+            "reward_nkg": 5.0,
+            "reward_beta": 0,
+            "progress": min(week_referrals, 1),
+            "goal": 1,
+            "claimable": week_referrals >= 1 and f"weekly_invite_{week}" not in claimed,
+            "claimed": f"weekly_invite_{week}" in claimed,
+        },
+        {
+            "id": f"weekly_transfer_{week}",
+            "type": "weekly",
+            "title": "Rede activa",
+            "description": "Enviar 1 transferência esta semana",
+            "reward_nkg": 1.0,
+            "reward_beta": 0,
+            "progress": min(week_transfers, 1),
+            "goal": 1,
+            "claimable": week_transfers >= 1 and f"weekly_transfer_{week}" not in claimed,
+            "claimed": f"weekly_transfer_{week}" in claimed,
+        },
+        {
+            "id": year_key,
+            "type": "yearly",
+            "title": f"Aniversário Nickcoin {year}",
+            "description": "Prémio anual dos pioneiros — reclamar em Janeiro",
+            "reward_nkg": 50.0,
+            "reward_beta": 0,
+            "progress": 1 if now_utc().month == 1 else 0,
+            "goal": 1,
+            "claimable": now_utc().month == 1 and year_key not in claimed,
+            "claimed": year_key in claimed,
+        },
+    ]
+    return quests
+
+
+@api_router.get("/quests")
+async def quests_list(current=Depends(get_current_user)):
+    quests = await _build_quests(current)
+    return {"items": quests, "server_time": now_utc().isoformat()}
+
+
+class QuestClaimIn(BaseModel):
+    quest_id: str
+
+
+@api_router.post("/quests/claim")
+async def quests_claim(payload: QuestClaimIn, current=Depends(get_current_user)):
+    quests = await _build_quests(current)
+    quest = next((q for q in quests if q["id"] == payload.quest_id), None)
+    if not quest:
+        raise HTTPException(status_code=404, detail="Missão não encontrada")
+    if quest["claimed"]:
+        raise HTTPException(status_code=400, detail="Missão já reclamada")
+    if not quest["claimable"]:
+        raise HTTPException(status_code=400, detail="Missão ainda não completada")
+
+    reward_nkg = float(quest["reward_nkg"] or 0)
+    reward_beta = float(quest["reward_beta"] or 0)
+    await db.users.update_one(
+        {"id": current["id"]},
+        {
+            "$set": {f"quests_claimed.{payload.quest_id}": now_utc().isoformat()},
+            "$inc": {"balance_nkg": reward_nkg, "balance_beta": reward_beta},
+        },
+    )
+    if reward_nkg > 0:
+        await db.transactions.insert_one({
+            "id": str(uuid.uuid4()),
+            "user_id": current["id"],
+            "type": "quest_reward",
+            "amount": reward_nkg,
+            "currency": "NKG",
+            "quest_id": payload.quest_id,
+            "created_at": now_utc(),
+        })
+    if reward_beta > 0:
+        await db.transactions.insert_one({
+            "id": str(uuid.uuid4()),
+            "user_id": current["id"],
+            "type": "quest_reward",
+            "amount": reward_beta,
+            "currency": "BETA",
+            "quest_id": payload.quest_id,
+            "created_at": now_utc(),
+        })
+    return {"ok": True, "reward_nkg": reward_nkg, "reward_beta": reward_beta, "quest_id": payload.quest_id}
 
 
 # ---------- Routes: Chat ----------

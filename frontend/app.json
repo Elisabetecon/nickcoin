@@ -12,14 +12,16 @@
       "supportsTablet": true,
       "infoPlist": {
         "NSCameraUsageDescription": "Scan QR codes to import wallet addresses"
-      }
+      },
+      "bundleIdentifier": "com.emergent.nickcoinbeta.n6ry02"
     },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",
         "backgroundColor": "#000000"
       },
-      "edgeToEdgeEnabled": true
+      "edgeToEdgeEnabled": true,
+      "package": "com.emergent.nickcoinbeta.n6ry02"
     },
     "web": {
       "bundler": "metro",
@@ -37,7 +39,8 @@
           "backgroundColor": "#000000"
         }
       ],
-      "expo-web-browser"
+      "expo-web-browser",
+      "expo-font"
     ],
     "experiments": {
       "typedRoutes": true
